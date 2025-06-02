@@ -108,6 +108,7 @@ class PedidoItem(PedidoItemBase):
     id: int
     pedido_id: int
     # produto: Produto
+    nome_produto: Optional[str] = None
 
     class Config:
         from_attributes = True

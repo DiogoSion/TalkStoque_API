@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, Numeric, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.hybrid import hybrid_property
 
 # Importa a classe Base do seu arquivo database.py
 from database import Base
@@ -81,6 +82,13 @@ class PedidoItem(Base):
     pedido = relationship("Pedido", back_populates="itens")
     # Relacionamento: Um item de pedido refere-se a um produto
     produto = relationship("Produto", back_populates="pedido_itens")
+
+    # Propriedade híbrida para acessar o nome do produto diretamente
+    @hybrid_property
+    def nome_produto(self):
+        if self.produto:
+            return self.produto.nome
+        return None
 
 
 class Venda(Base):

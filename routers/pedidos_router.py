@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from sqlalchemy import or_, func
+from sqlalchemy.orm import Session, selectinload
+from typing import List, Optional
 
 import models
 import schemas
@@ -25,16 +27,15 @@ def create_pedido(
     db: Session = Depends(get_db),
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
-    cliente = db.query(models.Cliente).filter(models.Cliente.id == pedido_data.cliente_id).first()
-    if not cliente:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Cliente com id {pedido_data.cliente_id} não encontrado.")
+    cliente = db.query(models.Cliente).filter(models.Cliente.id == pedido_data.cliente_id).first() #
+    if not cliente: #
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Cliente com id {pedido_data.cliente_id} não encontrado.") #
 
     pedido_itens_data = pedido_data.itens
     pedido_dict = pedido_data.model_dump(exclude={'itens'})
     db_pedido = models.Pedido(**pedido_dict)
     db.add(db_pedido)
     
-    created_itens_models = []
     if pedido_itens_data:
         for item_data in pedido_itens_data:
             produto = db.query(models.Produto).filter(models.Produto.id == item_data.produto_id).first()
@@ -43,22 +44,28 @@ def create_pedido(
             if produto.quantidade_estoque < item_data.quantidade:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Estoque insuficiente para {produto.nome}.")
             
-            db_item = models.PedidoItem(**item_data.model_dump()) 
-            db_item.pedido = db_pedido # Associa o item ao pedido que está sendo criado
+            db_item = models.PedidoItem(**item_data.model_dump())
+            db_item.pedido = db_pedido # Associa o item ao objeto Pedido
+            db.add(db_item) # Adiciona o item à sessão
+
             produto.quantidade_estoque -= item_data.quantidade
             db.add(produto)
-            created_itens_models.append(db_item)
-        # Adiciona os itens depois que o pedido já está na sessão
-        # db.add_all(created_itens_models) # SQLAlchemy pode lidar com isso através do relacionamento e cascade se configurado
+
+
 
     try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Erro ao criar pedido: {str(e)}")
+        db.commit() #
+    except Exception as e: #
+        db.rollback() #
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Erro ao criar pedido: {str(e)}") #
     
     db.refresh(db_pedido)
+    db.refresh(db_pedido, attribute_names=['itens'])
+    for item in db_pedido.itens:
+        db.refresh(item, attribute_names=['produto'])
+        
     return db_pedido
+
 
 @router.get("/{pedido_id}", response_model=schemas.Pedido)
 def read_pedido(
@@ -66,19 +73,49 @@ def read_pedido(
     db: Session = Depends(get_db), 
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
-    db_pedido = db.query(models.Pedido).filter(models.Pedido.id == pedido_id).first()
-    if db_pedido is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado")
-    return db_pedido
+    db_pedido = db.query(models.Pedido).filter(models.Pedido.id == pedido_id).first() #
+    if db_pedido is None: #
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado") #
+    return db_pedido #
 
 @router.get("/", response_model=List[schemas.Pedido])
 def read_pedidos(
     skip: int = 0, 
     limit: int = 100, 
+    status_filter: Optional[str] = None,
+    search: Optional[str] = None,
     db: Session = Depends(get_db),
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
-    pedidos = db.query(models.Pedido).offset(skip).limit(limit).all()
+    query = db.query(models.Pedido) #
+
+    if status_filter:
+        query = query.filter(models.Pedido.status == status_filter)
+
+
+    if search:
+        search_lower = search.lower() # Converter termo de busca para minúsculas
+        
+        # Tentar converter o termo de busca para inteiro (para ID do pedido)
+        id_condition = None
+        try:
+            pedido_id_searched = int(search)
+            id_condition = (models.Pedido.id == pedido_id_searched)
+        except ValueError:
+            pass # Não é um inteiro, então não é um ID de pedido válido para esta condição
+
+        query = query.join(models.Pedido.cliente).options(selectinload(models.Pedido.cliente)) 
+        # Condição para buscar pelo nome do cliente (case-insensitive)
+        name_condition = models.Pedido.cliente.has(func.lower(models.Cliente.nome).like(f"%{search_lower}%"))
+
+        if id_condition is not None:
+            # Se o termo de busca pôde ser um ID, busca por ID OU nome do cliente
+            query = query.filter(or_(id_condition, name_condition))
+        else:
+            # Se não for um ID válido, busca apenas pelo nome do cliente
+            query = query.filter(name_condition)
+            
+    pedidos = query.offset(skip).limit(limit).all()
     return pedidos
 
 @router.put("/{pedido_id}", response_model=schemas.Pedido)
@@ -88,26 +125,26 @@ def update_pedido(
     db: Session = Depends(get_db),
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
-    db_pedido = db.query(models.Pedido).filter(models.Pedido.id == pedido_id).first()
-    if db_pedido is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado")
+    db_pedido = db.query(models.Pedido).filter(models.Pedido.id == pedido_id).first() #
+    if db_pedido is None: #
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado") #
 
-    update_data = pedido_update.model_dump(exclude_unset=True)
-    if "cliente_id" in update_data:
-        cliente = db.query(models.Cliente).filter(models.Cliente.id == update_data["cliente_id"]).first()
-        if not cliente:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Cliente com id {update_data['cliente_id']} não encontrado.")
+    update_data = pedido_update.model_dump(exclude_unset=True) #
+    if "cliente_id" in update_data: #
+        cliente = db.query(models.Cliente).filter(models.Cliente.id == update_data["cliente_id"]).first() #
+        if not cliente: #
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Cliente com id {update_data['cliente_id']} não encontrado.") #
 
-    for key, value in update_data.items():
-        setattr(db_pedido, key, value)
+    for key, value in update_data.items(): #
+        setattr(db_pedido, key, value) #
     
     try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Erro ao atualizar pedido: {str(e)}")
-    db.refresh(db_pedido)
-    return db_pedido
+        db.commit() #
+    except Exception as e: #
+        db.rollback() #
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Erro ao atualizar pedido: {str(e)}") #
+    db.refresh(db_pedido) #
+    return db_pedido #
 
 @router.delete("/{pedido_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_pedido(
@@ -115,20 +152,20 @@ def delete_pedido(
     db: Session = Depends(get_db),
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
-    db_pedido = db.query(models.Pedido).filter(models.Pedido.id == pedido_id).first()
-    if db_pedido is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado")
+    db_pedido = db.query(models.Pedido).filter(models.Pedido.id == pedido_id).first() #
+    if db_pedido is None: #
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado") #
     
-    for item in db_pedido.itens: # type: ignore
-        produto = db.query(models.Produto).filter(models.Produto.id == item.produto_id).first()
-        if produto:
-            produto.quantidade_estoque += item.quantidade
-            db.add(produto)
+    for item in db_pedido.itens: # type: ignore #
+        produto = db.query(models.Produto).filter(models.Produto.id == item.produto_id).first() #
+        if produto: #
+            produto.quantidade_estoque += item.quantidade #
+            db.add(produto) #
 
-    db.delete(db_pedido)
+    db.delete(db_pedido) #
     try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Erro ao deletar pedido: {str(e)}")
-    return
+        db.commit() #
+    except Exception as e: #
+        db.rollback() #
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Erro ao deletar pedido: {str(e)}") #
+    return #

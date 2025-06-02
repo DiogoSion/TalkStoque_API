@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from sqlalchemy import or_, func
+from typing import List, Optional
 
 import models
 import schemas
@@ -21,8 +22,8 @@ def get_db():
 
 @router.post("/", response_model=schemas.Produto, status_code=status.HTTP_201_CREATED)
 def create_produto(
-    produto: schemas.ProdutoCreate, 
-    db: Session = Depends(get_db), 
+    produto: schemas.ProdutoCreate,
+    db: Session = Depends(get_db),
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
     db_produto = models.Produto(**produto.model_dump())
@@ -33,8 +34,8 @@ def create_produto(
 
 @router.get("/{produto_id}", response_model=schemas.Produto)
 def read_produto(
-    produto_id: int, 
-    db: Session = Depends(get_db), 
+    produto_id: int,
+    db: Session = Depends(get_db),
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
     db_produto = db.query(models.Produto).filter(models.Produto.id == produto_id).first()
@@ -44,18 +45,31 @@ def read_produto(
 
 @router.get("/", response_model=List[schemas.Produto])
 def read_produtos(
-    skip: int = 0, 
-    limit: int = 100, 
-    db: Session = Depends(get_db), 
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
-    produtos = db.query(models.Produto).offset(skip).limit(limit).all()
+    query = db.query(models.Produto)
+
+    if search:
+        search_term = f"%{search.lower()}%" # Converte o termo de busca para minúsculas para busca case-insensitive
+        query = query.filter(
+            or_(
+                func.lower(models.Produto.nome).like(search_term),
+                func.lower(models.Produto.descricao).like(search_term),
+                func.lower(models.Produto.categoria).like(search_term)
+            )
+        )
+    
+    produtos = query.offset(skip).limit(limit).all()
     return produtos
 
 @router.put("/{produto_id}", response_model=schemas.Produto)
 def update_produto(
-    produto_id: int, 
-    produto_update: schemas.ProdutoUpdate, 
+    produto_id: int,
+    produto_update: schemas.ProdutoUpdate,
     db: Session = Depends(get_db),
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
@@ -73,7 +87,7 @@ def update_produto(
 
 @router.delete("/{produto_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_produto(
-    produto_id: int, 
+    produto_id: int,
     db: Session = Depends(get_db),
     current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
 ):
