@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List
 
 import models
 import schemas
 from database import SessionLocal
+import auth_utils
 from auth_utils import get_password_hash, get_current_active_funcionario # Importa a dependência
 
 router = APIRouter(
@@ -40,6 +42,20 @@ def create_funcionario(funcionario: schemas.FuncionarioCreate, db: Session = Dep
 @router.get("/me", response_model=schemas.Funcionario)
 async def read_funcionarios_me(current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)):
     return current_funcionario
+
+@router.get("/total", response_model=schemas.TotalFuncionarios)
+def get_total_funcionarios(
+    db: Session = Depends(get_db),
+    current_funcionario_auth: models.Funcionario = Depends(auth_utils.get_current_active_funcionario) # Protegendo o endpoint
+):
+    """
+    Retorna a contagem total de funcionários cadastrados.
+    """
+    # func.count(models.Funcionario.id) faz a contagem dos IDs dos funcionários
+    # .scalar() retorna o valor da contagem diretamente
+    total_count = db.query(func.count(models.Funcionario.id)).scalar()
+    
+    return {"total_funcionarios": total_count if total_count is not None else 0}
 
 @router.get("/{funcionario_id}", response_model=schemas.Funcionario)
 def read_funcionario(

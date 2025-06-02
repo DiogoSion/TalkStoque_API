@@ -21,6 +21,19 @@ def get_db():
     finally:
         db.close()
 
+@router.get("/contagem-ativos", response_model=schemas.PedidoCount)
+def count_active_pedidos(
+    db: Session = Depends(get_db),
+    current_funcionario: models.Funcionario = Depends(get_current_active_funcionario)
+):
+    """
+    Retorna a contagem total de pedidos que estão com status 'Pendente', 
+    'Processando', ou 'Enviado'.
+    """
+    status_list = ["Pendente", "Processando", "Enviado"]
+    count = db.query(func.count(models.Pedido.id)).filter(models.Pedido.status.in_(status_list)).scalar()
+    return {"total_ativos": count if count is not None else 0}
+
 @router.post("/", response_model=schemas.Pedido, status_code=status.HTTP_201_CREATED)
 def create_pedido(
     pedido_data: schemas.PedidoCreate, 

@@ -12,9 +12,6 @@ class TokenData(BaseModel):
     email: Optional[str] = None
     funcionario_id: Optional[int] = None
 
-
-# --- Schemas Existentes (Produto, Funcionario, Cliente, etc.) ---
-
 # Schemas para Produto
 class ProdutoBase(BaseModel):
     nome: str
@@ -32,6 +29,9 @@ class ProdutoUpdate(ProdutoBase):
     preco: Optional[Decimal] = None
     quantidade_estoque: Optional[int] = None
     categoria: Optional[str] = None
+
+class TotalEstoque(BaseModel):
+    total_itens_estoque: int
 
 class Produto(ProdutoBase):
     id: int
@@ -54,6 +54,9 @@ class FuncionarioUpdate(FuncionarioBase): # Não permitir atualização de senha
     nome: Optional[str] = None
     email: Optional[str] = None # Considere se a atualização de email deve ser permitida e como afeta o login
     cargo: Optional[str] = None
+
+class TotalFuncionarios(BaseModel):
+    total_funcionarios: int
 
 class Funcionario(FuncionarioBase):
     id: int
@@ -128,6 +131,9 @@ class VendaUpdate(VendaBase):
     valor_total: Optional[Decimal] = None
     forma_pagamento: Optional[str] = None
 
+class ValorVendido(BaseModel):
+    total: Decimal
+
 class Venda(VendaBase):
     id: int
     pedido_id: int
@@ -152,6 +158,8 @@ class PedidoUpdate(PedidoBase):
     status: Optional[str] = None
     total: Optional[Decimal] = None
 
+class PedidoCount(BaseModel):
+    total_ativos: int
 
 class Pedido(PedidoBase):
     id: int
@@ -167,4 +175,4 @@ class Pedido(PedidoBase):
 # No Pydantic V2, isso é muitas vezes automático com as anotações de string.
 # Cliente.model_rebuild()
 # Pedido.model_rebuild()
-# etc.
+# etc

@@ -97,3 +97,17 @@ def delete_produto(
     db.delete(db_produto)
     db.commit()
     return
+
+@router.get("/estoque/total", response_model=schemas.TotalEstoque)
+def get_total_estoque(
+    db: Session = Depends(get_db),
+    current_funcionario: models.Funcionario = Depends(get_current_active_funcionario) # Protegendo o endpoint
+):
+    """
+    Retorna a soma total da quantidade de todos os produtos em estoque.
+    """
+    # func.sum(models.Produto.quantidade_estoque) faz a soma da coluna quantidade_estoque
+    # .scalar() retorna o valor da soma diretamente
+    total_stock = db.query(func.sum(models.Produto.quantidade_estoque)).scalar()
+    
+    return {"total_itens_estoque": total_stock if total_stock is not None else 0}
